@@ -1,24 +1,26 @@
 var express = require('express');
 var router = express.Router();
+let { categories, data } = require('../utils/data')
 let slugify = require('slugify')
-let categorySchema = require('../schemas/categories')
-//mongoose --- mongoDB
+let { IncrementalId } = require('../utils/IncrementalIdHandler')
 
-/* GET users listing. */
-///api/v1/products
-router.get('/', async function (req, res, next) {
-  //let categoryName = req.query.category ? req.query.category : '';
-  let data = await categorySchema.find({})
-  let result = data.filter(function (e) {
-    return (!e.isDeleted)
+// GET all categories with name query filter
+router.get('/', function (req, res, next) {
+  let nameQ = req.query.name ? req.query.name : '';
+  let result = categories.filter(function (e) {
+    return e.name.toLowerCase().includes(nameQ.toLowerCase())
   })
   res.send(result);
 });
-router.get('/slug/:slug', async function (req, res, next) {
+
+// GET category by slug
+router.get('/slug/:slug', function (req, res, next) {
   let slug = req.params.slug;
-  let result = await categorySchema.findOne({
-    slug: slug
-  })
+  let result = categories.find(
+    function (e) {
+      return e.slug == slug;
+    }
+  )
   if (result) {
     res.status(200).send(result)
   } else {
@@ -27,84 +29,110 @@ router.get('/slug/:slug', async function (req, res, next) {
     })
   }
 });
-///api/v1/products/1
-router.get('/:id', async function (req, res, next) {
-  try {
-    let result = await categorySchema.findOne(
-      { _id: req.params.id && isDeleted }
-    );
-    if (result) {
-      res.status(200).send(result)
-    } else {
-      res.status(404).send({
-        message: "ID NOT FOUND"
-      })
+
+// GET category by ID
+router.get('/:id', function (req, res, next) {
+  let result = categories.find(
+    function (e) {
+      return e.id == req.params.id
     }
-  } catch (error) {
+  );
+  if (result) {
+    res.status(200).send(result)
+  } else {
     res.status(404).send({
       message: "ID NOT FOUND"
     })
   }
 });
-router.post('/', async function (req, res, next) {
-  try {
-    let newObj = new categorySchema({
-      name: req.body.name,
-      slug: slugify(req.body.name, {
-        replacement: '-', lower: true, locale: 'vi',
-      }),
-      description: req.body.description,
-      images: req.body.images
-    })
-    await newObj.save()
-    res.send(newObj);
-  } catch (error) {
-    res.status(404).send(error.message);
-  }
-})
-router.put('/:id', async function (req, res, next) {
-  try {
-    // let result = await categorySchema.findOne(
-    //   { _id: req.params.id }
-    // );
-    // if (result) {
-    //   //res.status(200).send(result)
-    //   let keys = Object.keys(req.body);
-    //   for (const key of keys) {
-    //     result[key] = req.body[key];
-    //   }
-    //   await result.save();
-    //   res.status(200).send(result)
-    // } else {
-    //   res.status(404).send({
-    //     message: "ID NOT FOUND"
-    //   })
-    // }
 
+// GET all products by category ID
+router.get('/:id/products', function (req, res, next) {
+  let categoryId = parseInt(req.params.id);
+  let result = data.filter(function (e) {
+    return (!e.isDeleted) && e.category.id == categoryId
+  })
+  if (result.length > 0) {
+    res.status(200).send(result)
+  } else {
+    res.status(404).send({
+      message: "NO PRODUCTS FOUND FOR THIS CATEGORY"
+    })
+  }
+});
 
-    let result = await categorySchema.findByIdAndUpdate(req.params.id,
-      req.body, {
-      new: true
-    })
-    res.status(200).send(result)
-  } catch (error) {
-    res.status(404).send({
-      message: "ID NOT FOUND"
-    })
-  }
-})
-router.delete('/:id', async function (req, res, next) {
-  try {
-    let result = await categorySchema.findByIdAndUpdate(req.params.id,
-      { isDeleted: true }, {
-      new: true
-    })
-    res.status(200).send(result)
-  } catch (error) {
-    res.status(404).send({
-      message: "ID NOT FOUND"
+// POST create new category
+router.post('/', function (req, res, next) {
+  const { name, image } = req.body;
+  
+  if (!name || !image) {
+    return res.status(400).send({
+      message: "Name and image are required"
     })
   }
-})
+
+  const newId = IncrementalId(categories);
+  const newCategory = {
+    id: newId,
+    name: name,
+    slug: slugify(name, { lower: true }),
+    image: image,
+    creationAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  categories.push(newCategory);
+  res.status(201).send(newCategory);
+});
+
+// PUT update category
+router.put('/:id', function (req, res, next) {
+  let categoryId = parseInt(req.params.id);
+  let categoryIndex = categories.findIndex(function (e) {
+    return e.id == categoryId
+  });
+
+  if (categoryIndex === -1) {
+    return res.status(404).send({
+      message: "CATEGORY NOT FOUND"
+    })
+  }
+
+  const { name, image } = req.body;
+  
+  if (name) {
+    categories[categoryIndex].name = name;
+    categories[categoryIndex].slug = slugify(name, { lower: true });
+  }
+  
+  if (image) {
+    categories[categoryIndex].image = image;
+  }
+  
+  categories[categoryIndex].updatedAt = new Date().toISOString();
+
+  res.status(200).send(categories[categoryIndex]);
+});
+
+// DELETE category
+router.delete('/:id', function (req, res, next) {
+  let categoryId = parseInt(req.params.id);
+  let categoryIndex = categories.findIndex(function (e) {
+    return e.id == categoryId
+  });
+
+  if (categoryIndex === -1) {
+    return res.status(404).send({
+      message: "CATEGORY NOT FOUND"
+    })
+  }
+
+  const deletedCategory = categories.splice(categoryIndex, 1);
+  
+  res.status(200).send({
+    message: "CATEGORY DELETED SUCCESSFULLY",
+    category: deletedCategory[0]
+  });
+});
 
 module.exports = router;
